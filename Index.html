@@ -4,12 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport"
         content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>顔トラッキングテスト</title>
+  <title>顔トラッキング＋フロントカメラ＋ステッカー</title>
 
-  <!-- MediaPipe FaceMesh と CameraUtils をグローバル読み込み -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/face_mesh.js"
-          crossorigin="anonymous"></script>
+  <!-- MediaPipe と CameraUtils の読み込み -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js"
+          crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/face_mesh.js"
           crossorigin="anonymous"></script>
 
   <style>
@@ -18,20 +18,23 @@
       width: 100vw; height: 100vh;
       overflow: hidden;
       background: #000;
-      display: flex; justify-content: center; align-items: center;
     }
-    video, canvas {
+    /* 映像とオーバーレイを重ねる */
+    #video, #overlay {
       position: absolute;
       top: 0; left: 0;
       width: 100%; height: 100%;
       object-fit: cover;
     }
-    canvas { pointer-events: none; }
+    /* クリックイベントを透過 */
+    #overlay { pointer-events: none; }
   </style>
 </head>
 <body>
 
+  <!-- カメラ映像 -->
   <video id="video" autoplay playsinline muted></video>
+  <!-- 顔トラッキング用オーバーレイ -->
   <canvas id="overlay"></canvas>
 
   <script>
@@ -40,7 +43,11 @@
     const overlay = document.getElementById('overlay');
     const ctx     = overlay.getContext('2d');
 
-    // FaceMesh 初期化
+    // ステッカー画像をロード
+    const sticker = new Image();
+    sticker.src   = 'glasses.png'; // 同フォルダに配置してください
+
+    // MediaPipe FaceMesh 初期化
     const faceMesh = new FaceMesh({
       locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/${f}`
     });
@@ -50,35 +57,43 @@
       minTrackingConfidence: 0.5
     });
 
-    // 結果受け取り時にランドマークを描画
+    // 顔検出ごとにステッカーを描画
     faceMesh.onResults(results => {
-      // canvas サイズを video に合わせる
+      // canvas を video サイズに合わせる
       overlay.width  = video.videoWidth;
       overlay.height = video.videoHeight;
       ctx.clearRect(0, 0, overlay.width, overlay.height);
 
       if (!results.multiFaceLandmarks) return;
 
-      for (const landmarks of results.multiFaceLandmarks) {
-        ctx.fillStyle = 'cyan';
-        for (const point of landmarks) {
-          const x = point.x * overlay.width;
-          const y = point.y * overlay.height;
-          ctx.beginPath();
-          ctx.arc(x, y, 2, 0, 2 * Math.PI);
-          ctx.fill();
-        }
+      const lm = results.multiFaceLandmarks[0];
+      // ランドマーク33（左目内側）、263（右目内側）
+      const L = lm[33], R = lm[263];
+      const lx = L.x * overlay.width,  ly = L.y * overlay.height;
+      const rx = R.x * overlay.width,  ry = R.y * overlay.height;
+
+      // 眼間距離を基にステッカーサイズを決定
+      const dist = Math.hypot(rx - lx, ry - ly);
+      const w    = dist * 2.5;
+      const h    = w * (sticker.height / sticker.width);
+
+      // 描画位置（目の中央より少し上）
+      const cx = (lx + rx) / 2 - w / 2;
+      const cy = (ly + ry) / 2 - h / 2 - (0.1 * h);
+
+      if (sticker.complete) {
+        ctx.drawImage(sticker, cx, cy, w, h);
       }
     });
 
-    // カメラ起動とフレーム送信
+    // カメラ起動＆MediaPipeへフレーム送信（フロントカメラ）
     const camera = new Camera(video, {
       onFrame: async () => {
         await faceMesh.send({ image: video });
       },
-      width: 640,
+      width:  640,
       height: 480,
-      facingMode: 'environment'
+      facingMode: 'user'   // ← 'environment' ではなく 'user' を指定
     });
     camera.start();
   </script>
