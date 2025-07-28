@@ -2,25 +2,68 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>カメラテスト</title>
+  <title>カメラ再起動サンプル</title>
+  <style>
+    body { text-align: center; margin-top: 2rem; }
+    video { border: 1px solid #ccc; }
+    button { margin: 0.5rem; padding: 0.5rem 1rem; }
+  </style>
 </head>
 <body>
-  <video id="video" autoplay playsinline width="640" height="480"></video>
+  <button id="startBtn">カメラ起動</button>
+  <button id="stopBtn" disabled>カメラ停止</button>
+  <button id="restartBtn" disabled>カメラ再起動</button>
+  <div>
+    <video id="video" width="640" height="480" autoplay playsinline></video>
+  </div>
 
   <script>
-    const video = document.getElementById("video");
+    const video = document.getElementById('video');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const restartBtn = document.getElementById('restartBtn');
 
+    let stream = null;
+
+    // カメラ起動
     async function startCamera() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
         video.srcObject = stream;
+        startBtn.disabled   = true;
+        stopBtn.disabled    = false;
+        restartBtn.disabled = false;
       } catch (err) {
-        alert("カメラにアクセスできません: " + err.message);
+        alert('カメラにアクセスできません: ' + err.message);
         console.error(err);
       }
     }
 
-    startCamera();
+    // カメラ停止
+    function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+      video.srcObject = null;
+      startBtn.disabled   = false;
+      stopBtn.disabled    = true;
+      restartBtn.disabled = true;
+    }
+
+    // 再起動：停止→起動
+    async function restartCamera() {
+      stopCamera();
+      await startCamera();
+    }
+
+    // ボタンにイベント登録
+    startBtn  .addEventListener('click', startCamera);
+    stopBtn   .addEventListener('click', stopCamera);
+    restartBtn.addEventListener('click', restartCamera);
+
+    // ページ読み込み時に自動起動したい場合はコメントを外してください
+    // startCamera();
   </script>
 </body>
 </html>
