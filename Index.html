@@ -2,35 +2,59 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <title>拡張フィルター & キャプチャ</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>スマホ対応・写真保存アプリ</title>
   <style>
-    body {
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
       display: flex;
       flex-direction: column;
-      align-items: center;
+      background: #000;
+      color: #fff;
       font-family: sans-serif;
-      margin: 2rem;
     }
     .controls {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 0.5rem 1rem;
-      margin-bottom: 1rem;
-      width: 90%;
-      max-width: 800px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-around;
+      padding: 0.5rem;
+      background: rgba(0,0,0,0.5);
     }
     .controls label {
-      font-size: 0.8rem;
+      flex: 1 1 45%;
+      font-size: 1rem;
+      margin: 0.25rem;
     }
-    video, canvas {
-      border: 2px solid #ccc;
-      border-radius: 4px;
-      width: 640px;
-      height: 480px;
+    .controls input {
+      width: 100%;
+      margin-top: 0.25rem;
+    }
+    #video {
+      flex: 1;
+      width: 100%;
       object-fit: cover;
+      /* 初期フィルター */
+      filter: saturate(100%) brightness(100%);
     }
     .actions {
-      margin-top: 1rem;
+      display: flex;
+      justify-content: center;
+      padding: 0.5rem;
+      background: rgba(0,0,0,0.5);
+    }
+    .actions button {
+      flex: 1 1 auto;
+      margin: 0 0.5rem;
+      padding: 0.75rem;
+      font-size: 1rem;
+      border: none;
+      border-radius: 4px;
+      background: #1e90ff;
+      color: #fff;
     }
   </style>
 </head>
@@ -39,7 +63,7 @@
   <div class="controls">
     <label>
       彩度<br>
-      <input type="range" id="saturate" min="0"   max="200" value="100">
+      <input type="range" id="saturate" min="0" max="200" value="100">
       <span id="val-saturate">100%</span>
     </label>
     <label>
@@ -49,7 +73,7 @@
     </label>
     <label>
       コントラスト<br>
-      <input type="range" id="contrast" min="0"   max="200" value="100">
+      <input type="range" id="contrast" min="0" max="200" value="100">
       <span id="val-contrast">100%</span>
     </label>
     <label>
@@ -57,34 +81,13 @@
       <input type="range" id="sepia" min="0" max="100" value="0">
       <span id="val-sepia">0%</span>
     </label>
-    <label>
-      グレースケール<br>
-      <input type="range" id="grayscale" min="0" max="100" value="0">
-      <span id="val-grayscale">0%</span>
-    </label>
-    <label>
-      反転<br>
-      <input type="range" id="invert" min="0"   max="100" value="0">
-      <span id="val-invert">0%</span>
-    </label>
-    <label>
-      ぼかし<br>
-      <input type="range" id="blur" min="0"    max="10" step="0.1" value="0">
-      <span id="val-blur">0px</span>
-    </label>
-    <label>
-      色相回転<br>
-      <input type="range" id="hue" min="0"     max="360" value="0">
-      <span id="val-hue">0°</span>
-    </label>
   </div>
 
   <video id="video" autoplay playsinline></video>
   <canvas id="canvas" style="display:none;"></canvas>
 
   <div class="actions">
-    <button id="capture">撮影</button>
-    <a id="download" download="photo.png" style="margin-left:1rem;">↓ ダウンロード</a>
+    <button id="capture">撮影＆保存</button>
   </div>
 
   <script>
@@ -92,31 +95,25 @@
     const canvas     = document.getElementById('canvas');
     const ctx        = canvas.getContext('2d');
     const captureBtn = document.getElementById('capture');
-    const downloadA  = document.getElementById('download');
 
-    // フィルター用スライダーと表示要素をまとめて管理
     const filters = [
       { id:'saturate',   unit:'%',   css:'saturate'   },
       { id:'brightness', unit:'%',   css:'brightness' },
       { id:'contrast',   unit:'%',   css:'contrast'   },
-      { id:'sepia',      unit:'%',   css:'sepia'      },
-      { id:'grayscale',  unit:'%',   css:'grayscale'  },
-      { id:'invert',     unit:'%',   css:'invert'     },
-      { id:'blur',       unit:'px',  css:'blur'       },
-      { id:'hue',        unit:'deg', css:'hue-rotate' }
+      { id:'sepia',      unit:'%',   css:'sepia'      }
     ];
 
     // カメラ自動起動
     async function startCamera() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video:true });
+        const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode: 'environment' } });
         video.srcObject = stream;
       } catch(e) {
         alert('カメラ取得失敗: ' + e.message);
       }
     }
 
-    // 各スライダーにイベントを登録
+    // スライダーセットアップ
     function setupSliders() {
       filters.forEach(f => {
         const slider = document.getElementById(f.id);
@@ -128,7 +125,7 @@
       });
     }
 
-    // video 要素に CSS filter を一括適用
+    // フィルター適用
     function applyFilters() {
       const str = filters.map(f=>{
         const v = document.getElementById(f.id).value;
@@ -137,26 +134,47 @@
       video.style.filter = str;
     }
 
-    // 撮影して canvas にフィルター付きで描画
-    function capturePhoto() {
+    // 撮影＆シェア（写真アプリへ保存）
+    async function captureAndShare() {
+      // canvas にコピー
       canvas.width  = video.videoWidth;
       canvas.height = video.videoHeight;
-      // →canvas にも CSS filter をコピー
       canvas.style.filter = video.style.filter;
       ctx.drawImage(video, 0, 0);
-      canvas.toBlob(blob=>{
-        downloadA.href = URL.createObjectURL(blob);
-      }, 'image/png');
-      canvas.style.display = 'block';
+
+      // blob 作成
+      canvas.toBlob(async blob => {
+        const file = new File([blob], 'photo.png', { type: 'image/png' });
+        // Web Share API Level 2 が使えるか？
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({ files: [file], title: '撮影写真', text: 'My Filtered Photo' });
+          } catch (err) {
+            alert('シェアに失敗しました: ' + err.message);
+          }
+        } else {
+          // フォールバック：ダウンロードリンクを生成（手動保存）
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'photo.png';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          alert('画像を保存しました。長押しで「写真に追加」してください。');
+        }
+      }, 'image/png', 1);
     }
 
-    // 初期化
-    window.addEventListener('DOMContentLoaded', ()=>{
+    // イベント登録
+    window.addEventListener('DOMContentLoaded', () => {
       startCamera();
       setupSliders();
       applyFilters();
-      captureBtn.addEventListener('click', capturePhoto);
+      captureBtn.addEventListener('click', captureAndShare);
     });
   </script>
+
 </body>
 </html>
