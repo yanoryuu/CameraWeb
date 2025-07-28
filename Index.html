@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <title>彩度・明度フィルター</title>
+  <title>拡張フィルター & キャプチャ</title>
   <style>
     body {
       display: flex;
@@ -12,71 +12,150 @@
       margin: 2rem;
     }
     .controls {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem 1rem;
       margin-bottom: 1rem;
+      width: 90%;
+      max-width: 800px;
     }
     .controls label {
-      margin: 0 1rem;
-      font-size: 0.9rem;
+      font-size: 0.8rem;
     }
-    video {
+    video, canvas {
       border: 2px solid #ccc;
       border-radius: 4px;
-      /* 初期フィルター値 */
-      filter: saturate(100%) brightness(100%);
+      width: 640px;
+      height: 480px;
+      object-fit: cover;
+    }
+    .actions {
+      margin-top: 1rem;
     }
   </style>
 </head>
 <body>
+
   <div class="controls">
     <label>
-      彩度
-      <input type="range" id="saturation" min="0" max="200" value="100">
-      <span id="satVal">100%</span>
+      彩度<br>
+      <input type="range" id="saturate" min="0"   max="200" value="100">
+      <span id="val-saturate">100%</span>
     </label>
     <label>
-      明度
+      明度<br>
       <input type="range" id="brightness" min="0" max="200" value="100">
-      <span id="brightVal">100%</span>
+      <span id="val-brightness">100%</span>
+    </label>
+    <label>
+      コントラスト<br>
+      <input type="range" id="contrast" min="0"   max="200" value="100">
+      <span id="val-contrast">100%</span>
+    </label>
+    <label>
+      セピア<br>
+      <input type="range" id="sepia" min="0" max="100" value="0">
+      <span id="val-sepia">0%</span>
+    </label>
+    <label>
+      グレースケール<br>
+      <input type="range" id="grayscale" min="0" max="100" value="0">
+      <span id="val-grayscale">0%</span>
+    </label>
+    <label>
+      反転<br>
+      <input type="range" id="invert" min="0"   max="100" value="0">
+      <span id="val-invert">0%</span>
+    </label>
+    <label>
+      ぼかし<br>
+      <input type="range" id="blur" min="0"    max="10" step="0.1" value="0">
+      <span id="val-blur">0px</span>
+    </label>
+    <label>
+      色相回転<br>
+      <input type="range" id="hue" min="0"     max="360" value="0">
+      <span id="val-hue">0°</span>
     </label>
   </div>
 
-  <video id="video" width="640" height="480" autoplay playsinline></video>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas" style="display:none;"></canvas>
+
+  <div class="actions">
+    <button id="capture">撮影</button>
+    <a id="download" download="photo.png" style="margin-left:1rem;">↓ ダウンロード</a>
+  </div>
 
   <script>
-    const video = document.getElementById('video');
-    const satSlider = document.getElementById('saturation');
-    const brightSlider = document.getElementById('brightness');
-    const satVal = document.getElementById('satVal');
-    const brightVal = document.getElementById('brightVal');
+    const video      = document.getElementById('video');
+    const canvas     = document.getElementById('canvas');
+    const ctx        = canvas.getContext('2d');
+    const captureBtn = document.getElementById('capture');
+    const downloadA  = document.getElementById('download');
 
-    // カメラを自動起動
+    // フィルター用スライダーと表示要素をまとめて管理
+    const filters = [
+      { id:'saturate',   unit:'%',   css:'saturate'   },
+      { id:'brightness', unit:'%',   css:'brightness' },
+      { id:'contrast',   unit:'%',   css:'contrast'   },
+      { id:'sepia',      unit:'%',   css:'sepia'      },
+      { id:'grayscale',  unit:'%',   css:'grayscale'  },
+      { id:'invert',     unit:'%',   css:'invert'     },
+      { id:'blur',       unit:'px',  css:'blur'       },
+      { id:'hue',        unit:'deg', css:'hue-rotate' }
+    ];
+
+    // カメラ自動起動
     async function startCamera() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ video:true });
         video.srcObject = stream;
-      } catch (err) {
-        alert('カメラにアクセスできません: ' + err.message);
-        console.error(err);
+      } catch(e) {
+        alert('カメラ取得失敗: ' + e.message);
       }
     }
 
-    // スライダー値に合わせてフィルター更新
-    function updateFilter() {
-      const s = satSlider.value;
-      const b = brightSlider.value;
-      video.style.filter = `saturate(${s}%) brightness(${b}%)`;
-      satVal.textContent    = `${s}%`;
-      brightVal.textContent = `${b}%`;
+    // 各スライダーにイベントを登録
+    function setupSliders() {
+      filters.forEach(f => {
+        const slider = document.getElementById(f.id);
+        const label  = document.getElementById('val-'+f.id);
+        slider.addEventListener('input', ()=>{
+          label.textContent = slider.value + f.unit;
+          applyFilters();
+        });
+      });
     }
 
-    // イベント登録
-    satSlider.addEventListener('input', updateFilter);
-    brightSlider.addEventListener('input', updateFilter);
+    // video 要素に CSS filter を一括適用
+    function applyFilters() {
+      const str = filters.map(f=>{
+        const v = document.getElementById(f.id).value;
+        return `${f.css}(${v}${f.unit})`;
+      }).join(' ');
+      video.style.filter = str;
+    }
 
-    // ページ読み込み時
-    window.addEventListener('DOMContentLoaded', () => {
+    // 撮影して canvas にフィルター付きで描画
+    function capturePhoto() {
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+      // →canvas にも CSS filter をコピー
+      canvas.style.filter = video.style.filter;
+      ctx.drawImage(video, 0, 0);
+      canvas.toBlob(blob=>{
+        downloadA.href = URL.createObjectURL(blob);
+      }, 'image/png');
+      canvas.style.display = 'block';
+    }
+
+    // 初期化
+    window.addEventListener('DOMContentLoaded', ()=>{
       startCamera();
-      updateFilter(); // 初期表示
+      setupSliders();
+      applyFilters();
+      captureBtn.addEventListener('click', capturePhoto);
     });
   </script>
 </body>
