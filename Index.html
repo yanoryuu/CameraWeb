@@ -2,46 +2,115 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <!-- iOS Safari セーフエリア対応 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>顔トラッキング＋スタンプ</title>
+  <title>スマホ対応・写真加工＆スタンプアプリ</title>
 
-  <!-- MediaPipe スクリプトの読み込み -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/face_mesh.js"      crossorigin="anonymous"></script>
+  <!-- MediaPipe FaceMesh（モジュールではなくグローバル読み込み） -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/face_mesh.js" crossorigin="anonymous"></script>
 
   <style>
     html, body {
-      margin: 0; padding: 0;
-      width: 100vw; height: 100vh; overflow: hidden;
-      background: #000;
+      margin: 0; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      background: #000; color: #fff; font-family: sans-serif;
+      overflow: hidden;
     }
-    /* ビデオ＆オーバーレイを重ねる */
+    /* 上部：フィルターコントロール */
+    .controls {
+      display: flex; flex-wrap: wrap; justify-content: space-around;
+      padding: calc(0.5rem + env(safe-area-inset-top)) 0.5rem 0.5rem;
+      background: rgba(0,0,0,0.6);
+    }
+    .controls label {
+      flex: 1 1 45%; font-size: 1rem; margin: 0.25rem 0;
+    }
+    .controls input { width: 100%; margin-top: 0.25rem; }
+
+    /* 中央：映像＋スタンプオーバーレイ */
     #video, #overlay {
       position: absolute; top: 0; left: 0;
       width: 100%; height: 100%; object-fit: cover;
     }
-    /* overlay はクリックを透過 */
     #overlay { pointer-events: none; }
+
+    /* 隠しキャプチャ用キャンバス */
+    #canvas { display: none; }
+
+    /* 下部：アクションボタン */
+    .actions {
+      display: flex; justify-content: space-around;
+      padding: 0.5rem 0.5rem calc(0.5rem + env(safe-area-inset-bottom));
+      background: rgba(0,0,0,0.6);
+    }
+    .actions button {
+      flex: 1 1 auto; margin: 0 0.5rem; padding: 0.75rem;
+      font-size: 1rem; border: none; border-radius: 4px;
+      background: #1e90ff; color: #fff;
+    }
   </style>
 </head>
 <body>
 
-  <!-- カメラ映像 -->
+  <!-- 上部フィルターコントロール -->
+  <div class="controls">
+    <label>彩度<br>
+      <input type="range" id="saturate"   min="0" max="200" value="100">
+      <span id="val-saturate">100%</span>
+    </label>
+    <label>明度<br>
+      <input type="range" id="brightness" min="0" max="200" value="100">
+      <span id="val-brightness">100%</span>
+    </label>
+    <label>コントラスト<br>
+      <input type="range" id="contrast"   min="0" max="200" value="100">
+      <span id="val-contrast">100%</span>
+    </label>
+    <label>セピア<br>
+      <input type="range" id="sepia"      min="0" max="100" value="0">
+      <span id="val-sepia">0%</span>
+    </label>
+  </div>
+
+  <!-- 中央：カメラ映像 -->
   <video id="video" autoplay playsinline></video>
-  <!-- スタンプ描画用の透明キャンバス -->
+  <!-- 顔トラッキング用オーバーレイ -->
   <canvas id="overlay"></canvas>
+  <!-- 撮影キャプチャ用キャンバス -->
+  <canvas id="canvas"></canvas>
+
+  <!-- 下部：撮影＆保存／カメラ切替 -->
+  <div class="actions">
+    <button id="capture">撮影＆保存</button>
+    <button id="switch">カメラ切替</button>
+  </div>
 
   <script>
-    const video   = document.getElementById('video');
-    const overlay = document.getElementById('overlay');
-    const ctx     = overlay.getContext('2d');
+    const video      = document.getElementById('video');
+    const overlay    = document.getElementById('overlay');
+    const ctxOverlay = overlay.getContext('2d');
+    const canvas     = document.getElementById('canvas');
+    const ctxCanvas  = canvas.getContext('2d');
+    const captureBtn = document.getElementById('capture');
+    const switchBtn  = document.getElementById('switch');
 
-    // 顔に載せたい透過PNG（同フォルダに置いてください）
+    // フィルター設定
+    const filters = [
+      { id:'saturate',   unit:'%', css:'saturate'   },
+      { id:'brightness', unit:'%', css:'brightness' },
+      { id:'contrast',   unit:'%', css:'contrast'   },
+      { id:'sepia',      unit:'%', css:'sepia'      }
+    ];
+
+    // カメラ方向トグル
+    let facingMode = 'environment'; // 背面カメラ
+
+    // スタンプ画像
     const stamp = new Image();
-    stamp.src   = 'glasses.png';
+    stamp.src   = 'glasses.png'; // 同フォルダに用意
 
-    // FaceMesh の初期化
+    // MediaPipe FaceMesh 初期化
     const faceMesh = new FaceMesh({
       locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/${file}`
     });
@@ -50,41 +119,112 @@
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5
     });
+    faceMesh.onResults(drawStamp);
 
-    // 検出結果ごとにスタンプを描画
-    faceMesh.onResults(results => {
+    // 顔検出結果ごとにオーバーレイへスタンプ描画
+    function drawStamp(results) {
       overlay.width  = video.videoWidth;
       overlay.height = video.videoHeight;
-      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      ctxOverlay.clearRect(0,0,overlay.width, overlay.height);
 
       if (results.multiFaceLandmarks && stamp.complete) {
         const lm = results.multiFaceLandmarks[0];
-        // 左目内側 = 33, 右目内側 = 263
         const L = lm[33], R = lm[263];
-        const lx = L.x * overlay.width, ly = L.y * overlay.height;
-        const rx = R.x * overlay.width, ry = R.y * overlay.height;
-
-        // 眼間距離をもとにサイズを計算
+        const lx = L.x * overlay.width,  ly = L.y * overlay.height;
+        const rx = R.x * overlay.width,  ry = R.y * overlay.height;
         const dist = Math.hypot(rx - lx, ry - ly);
-        const w    = dist * 2.5;
-        const h    = w * (stamp.height / stamp.width);
-
-        // 目の中央より少し上に配置
-        const cx = (lx + rx) / 2 - w / 2;
-        const cy = (ly + ry) / 2 - h / 2 - (0.1 * h);
-
-        ctx.drawImage(stamp, cx, cy, w, h);
+        const w = dist * 2.5;
+        const h = w * (stamp.height / stamp.width);
+        const cx = (lx + rx)/2 - w/2;
+        const cy = (ly + ry)/2 - h/2 - (0.1*h);
+        ctxOverlay.drawImage(stamp, cx, cy, w, h);
       }
-    });
+    }
 
-    // カメラ起動＆MediaPipe へフレーム送信
-    const camera = new Camera(video, {
-      onFrame: async () => { await faceMesh.send({ image: video }); },
-      width:  640,
-      height: 480,
-      facingMode: 'environment'  // 背面カメラ。インカメラは 'user'
+    // フィルター適用
+    function applyFilters() {
+      const str = filters.map(f => {
+        const v = document.getElementById(f.id).value;
+        return `${f.css}(${v}${f.unit})`;
+      }).join(' ');
+      video.style.filter = str;
+    }
+    function setupSliders() {
+      filters.forEach(f => {
+        const s = document.getElementById(f.id);
+        const lab = document.getElementById('val-'+f.id);
+        s.addEventListener('input', () => {
+          lab.textContent = s.value + f.unit;
+          applyFilters();
+        });
+      });
+    }
+
+    // カメラ起動＆フレームループ
+    let stream = null;
+    async function startCamera() {
+      stopCamera();
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode } });
+        video.srcObject = stream;
+        await new Promise(r => video.onloadedmetadata = r);
+        requestAnimationFrame(onFrame);
+      } catch(e) {
+        alert('カメラ取得失敗: ' + e.message);
+      }
+    }
+    function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+    }
+    async function restartCamera() {
+      facingMode = facingMode === 'environment' ? 'user' : 'environment';
+      await startCamera();
+    }
+    async function onFrame() {
+      await faceMesh.send({ image: video });
+      requestAnimationFrame(onFrame);
+    }
+
+    // 撮影＆保存
+    function captureAndSave() {
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctxCanvas.filter = video.style.filter;
+      ctxCanvas.drawImage(video,  0, 0);
+      ctxCanvas.drawImage(overlay, 0, 0);
+
+      canvas.toBlob(async blob => {
+        const file = new File([blob], 'photo.png', { type: 'image/png' });
+        if (navigator.canShare?.({ files: [file] })) {
+          try {
+            await navigator.share({ files: [file], title: '撮影写真' });
+          } catch (err) {
+            alert('シェア失敗: ' + err.message);
+          }
+        } else {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = 'photo.png';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          alert('長押しで写真アプリに保存してください');
+        }
+      }, 'image/png');
+    }
+
+    // 初期化
+    window.addEventListener('DOMContentLoaded', () => {
+      setupSliders();
+      applyFilters();
+      startCamera();
+      captureBtn.addEventListener('click', captureAndSave);
+      switchBtn.addEventListener('click', restartCamera);
     });
-    camera.start();
   </script>
 </body>
 </html>
