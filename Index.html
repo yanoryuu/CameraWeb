@@ -1,67 +1,26 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <title>顔フィルター</title>
-  <style>
-    video, canvas {
-      position: absolute;
-      left: 0;
-      top: 0;
-      transform: scaleX(-1); /* ミラー反転 */
-    }
-  </style>
+  <meta charset="UTF-8">
+  <title>カメラテスト</title>
 </head>
 <body>
-  <video id="video" autoplay muted playsinline></video>
-  <canvas id="canvas"></canvas>
+  <video id="video" autoplay playsinline width="640" height="480"></video>
 
-  <script type="module">
-    import '@mediapipe/face_mesh/face_mesh.js';
-    import { Camera } from '@mediapipe/camera_utils/camera_utils.js';
+  <script>
+    const video = document.getElementById("video");
 
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-
-    const faceMesh = new FaceMesh({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-    });
-
-    faceMesh.setOptions({
-      maxNumFaces: 1,
-      refineLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
-
-    faceMesh.onResults((results) => {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-
-      if (results.multiFaceLandmarks) {
-        const landmarks = results.multiFaceLandmarks[0];
-        const point = landmarks[1]; // 鼻の上
-
-        const x = point.x * canvas.width;
-        const y = point.y * canvas.height;
-
-        ctx.fillStyle = 'rgba(0, 255, 255, 0.7)';
-        ctx.fillRect(x - 25, y - 25, 50, 50); // 仮フィルター（赤枠）
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+      } catch (err) {
+        alert("カメラにアクセスできません: " + err.message);
+        console.error(err);
       }
-    });
+    }
 
-    const camera = new Camera(video, {
-      onFrame: async () => {
-        await faceMesh.send({ image: video });
-      },
-      width: 640,
-      height: 480
-    });
-    camera.start();
+    startCamera();
   </script>
 </body>
 </html>
