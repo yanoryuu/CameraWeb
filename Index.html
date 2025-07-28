@@ -2,90 +2,96 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>顔トラッキング＋スタンプ</title>
   <style>
     html, body {
       margin: 0; padding: 0;
-      overflow: hidden;
       width: 100vw; height: 100vh;
+      overflow: hidden;
+      background: #000;
     }
+    /* ビデオとオーバーレイを重ねる */
     #video, #overlay {
       position: absolute;
       top: 0; left: 0;
       width: 100%; height: 100%;
       object-fit: cover;
     }
-    /* overlay は透過だけ使うので、クリックなどを邪魔しない */
-    #overlay { pointer-events: none; }
+    /* overlay はクリック透過 */
+    #overlay {
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
 
   <!-- カメラ映像 -->
   <video id="video" autoplay playsinline></video>
-  <!-- ここにスタンプを描画 -->
+  <!-- 顔上にスタンプを描画 -->
   <canvas id="overlay"></canvas>
 
   <script type="module">
-  import { FaceMesh } from 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js';
-  import { Camera }   from 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js';
+    // MediaPipe FaceMesh と CameraUtils を CDN から読み込む
+    import { FaceMesh } from 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js';
+    import { Camera }   from 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js';
 
-  const video   = document.getElementById('video');
-  const overlay = document.getElementById('overlay');
-  const octx    = overlay.getContext('2d');
+    const video   = document.getElementById('video');
+    const overlay = document.getElementById('overlay');
+    const ctx     = overlay.getContext('2d');
 
-  // ここに置きたいPNGを用意（例：サングラス）
-  const glasses = new Image();
-  glasses.src = 'glasses.png';  // 同じフォルダに置いてください
+    // 透過PNG スタンプ画像（同フォルダに glasses.png を配置）
+    const stamp = new Image();
+    stamp.src = 'glasses.png';
 
-  // FaceMesh 初期化
-  const faceMesh = new FaceMesh({
-    locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-  });
-  faceMesh.setOptions({
-    maxNumFaces: 1,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5
-  });
+    // FaceMesh の初期設定
+    const faceMesh = new FaceMesh({
+      locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+    });
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
 
-  // 顔検出結果が来たら overlay にスタンプを描画
-  faceMesh.onResults(results => {
-    // overlay canvas の大きさを video と合わせる
-    overlay.width  = video.videoWidth;
-    overlay.height = video.videoHeight;
-    octx.clearRect(0, 0, overlay.width, overlay.height);
+    // 検出結果で overlay にスタンプを描画
+    faceMesh.onResults(results => {
+      // canvas サイズを video と合わせる
+      overlay.width  = video.videoWidth;
+      overlay.height = video.videoHeight;
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-    if (results.multiFaceLandmarks && glasses.complete) {
-      const lm = results.multiFaceLandmarks[0];
-      // ランドマーク33 (左目近く)、263 (右目近く) を使う例
-      const L = lm[33], R = lm[263];
-      const lx = L.x * overlay.width,  ly = L.y * overlay.height;
-      const rx = R.x * overlay.width,  ry = R.y * overlay.height;
-      
-      // 眼間の距離をベースに幅を決定
-      const dist = Math.hypot(rx - lx, ry - ly);
-      const w = dist * 2.5;                    // サングラス幅
-      const h = w * (glasses.height / glasses.width);
-      
-      // 中心点を求めて位置調整
-      const cx = (lx + rx) / 2 - w / 2;
-      const cy = (ly + ry) / 2 - h / 2 - (0.1 * h);
+      if (results.multiFaceLandmarks && stamp.complete) {
+        const lm = results.multiFaceLandmarks[0];
 
-      octx.drawImage(glasses, cx, cy, w, h);
-    }
-  });
+        // 例：ランドマーク33（左目内側）と263（右目内側）を取得
+        const L = lm[33], R = lm[263];
+        const lx = L.x * overlay.width,  ly = L.y * overlay.height;
+        const rx = R.x * overlay.width,  ry = R.y * overlay.height;
 
-  // カメラ起動＋MediaPipe 連携
-  const camera = new Camera(video, {
-    onFrame: async () => {
-      await faceMesh.send({ image: video });
-    },
-    width: 640,
-    height: 480,
-    facingMode: 'environment'  // 'user' にするとインカメラ
-  });
-  camera.start();
+        // 目間距離を元にスタンプサイズを決定
+        const dist = Math.hypot(rx - lx, ry - ly);
+        const w = dist * 2.5;  // 幅を調整
+        const h = w * (stamp.height / stamp.width);
+
+        // スタンプの描画位置（目位置の中央、やや上にオフセット）
+        const cx = (lx + rx) / 2 - w / 2;
+        const cy = (ly + ry) / 2 - h / 2 - (0.1 * h);
+
+        ctx.drawImage(stamp, cx, cy, w, h);
+      }
+    });
+
+    // カメラ起動と FaceMesh へのフレーム送信
+    const camera = new Camera(video, {
+      onFrame: async () => {
+        await faceMesh.send({ image: video });
+      },
+      width: 640,
+      height: 480,
+      facingMode: 'environment'  // 背面カメラ。インカメラは 'user'
+    });
+    camera.start();
   </script>
 
 </body>
