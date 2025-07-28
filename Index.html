@@ -2,12 +2,15 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
+  <!-- iOS Safari 等のセーフエリア対応に必須 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>スマホ対応・写真加工アプリ</title>
   <style>
-    /* ── 全体を縦に３分割 ── */
+    /* ── 全体を縦３分割、セーフエリアの余白込み ── */
     html, body {
-      margin: 0; padding: 0;
+      margin: 0;
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
       height: 100vh;
       display: grid;
       grid-template-rows: auto 1fr auto;
@@ -16,35 +19,38 @@
       font-family: sans-serif;
       overflow: hidden;
     }
+
     /* ── 上部：フィルターコントロール ── */
     .controls {
       display: flex;
       flex-wrap: wrap;
       justify-content: space-around;
-      padding: 0.5rem;
+      padding: calc(0.5rem + env(safe-area-inset-top)) 0.5rem 0.5rem;
       background: rgba(0,0,0,0.6);
     }
     .controls label {
       flex: 1 1 45%;
       font-size: 1rem;
-      margin: 0.25rem;
+      margin: 0.25rem 0;
     }
     .controls input {
       width: 100%;
       margin-top: 0.25rem;
     }
+
     /* ── 中央：カメラ映像 ── */
     #video {
       width: 100%;
       height: 100%;
       object-fit: cover;
-      /* filter は JS からセット */
+      /* filter は JS から設定 */
     }
+
     /* ── 下部：アクションボタン ── */
     .actions {
       display: flex;
       justify-content: space-around;
-      padding: 0.5rem;
+      padding: 0.5rem 0.5rem calc(0.5rem + env(safe-area-inset-bottom));
       background: rgba(0,0,0,0.6);
     }
     .actions button {
@@ -61,10 +67,10 @@
 </head>
 <body>
 
-  <!-- 上部：４スライダー -->
+  <!-- 上部：フィルターコントロール -->
   <div class="controls">
     <label>彩度<br>
-      <input type="range" id="saturate"   min="0" max="200" value="100">
+      <input type="range" id="saturate" min="0"   max="200" value="100">
       <span id="val-saturate">100%</span>
     </label>
     <label>明度<br>
@@ -81,12 +87,12 @@
     </label>
   </div>
 
-  <!-- 中央：ビデオ -->
+  <!-- 中央：カメラ映像 -->
   <video id="video" autoplay playsinline></video>
-  <!-- canvas は撮影時のみ内部で使う -->
+  <!-- canvas は撮影時のみ内部で使用 -->
   <canvas id="canvas" style="display:none;"></canvas>
 
-  <!-- 下部：撮影＆保存／カメラ切替 -->
+  <!-- 下部：撮影＆保存・カメラ切替 -->
   <div class="actions">
     <button id="capture">撮影＆保存</button>
     <button id="switch">カメラ切替</button>
@@ -99,16 +105,16 @@
     const captureBtn = document.getElementById('capture');
     const switchBtn  = document.getElementById('switch');
 
-    // フィルター設定オブジェクト
+    // フィルター用設定
     const filters = [
-      { id:'saturate',   unit:'%', css:'saturate'   },
-      { id:'brightness', unit:'%', css:'brightness' },
-      { id:'contrast',   unit:'%', css:'contrast'   },
-      { id:'sepia',      unit:'%', css:'sepia'      }
+      { id: 'saturate',   unit: '%', css: 'saturate'   },
+      { id: 'brightness', unit: '%', css: 'brightness' },
+      { id: 'contrast',   unit: '%', css: 'contrast'   },
+      { id: 'sepia',      unit: '%', css: 'sepia'      }
     ];
 
-    // カメラの向き
-    let facingMode = 'environment'; // 'environment' または 'user'
+    // カメラの向き（environment=背面 / user=インカメラ）
+    let facingMode = 'environment';
 
     // カメラ起動
     async function startCamera() {
@@ -122,7 +128,7 @@
       }
     }
 
-    // 既存ストリーム停止
+    // カメラ停止
     function stopCamera() {
       const s = video.srcObject;
       if (s) {
@@ -131,13 +137,13 @@
       }
     }
 
-    // カメラ再起動（向き変更時に使用）
+    // 再起動（向き変更時に利用）
     async function restartCamera() {
       stopCamera();
       await startCamera();
     }
 
-    // スライダーをセットアップ
+    // スライダーの初期化
     function setupSliders() {
       filters.forEach(f => {
         const slider = document.getElementById(f.id);
@@ -149,36 +155,31 @@
       });
     }
 
-    // video に CSS filter を適用
+    // CSS filter を video に適用
     function applyFilters() {
-      const filterString = filters.map(f => {
+      const str = filters.map(f => {
         const v = document.getElementById(f.id).value;
         return `${f.css}(${v}${f.unit})`;
       }).join(' ');
-      video.style.filter = filterString;
+      video.style.filter = str;
     }
 
-    // 撮影＆保存（Web Share API or DLフォールバック）
+    // 撮影＆保存（Share API or ダウンロードフォールバック）
     function captureAndSave() {
-      // canvas に映像をコピー
       canvas.width  = video.videoWidth;
       canvas.height = video.videoHeight;
-      // video と同じ filter を canvas にも適用
-      canvas.style.filter = video.style.filter;
+      // video と同じフィルターを canvas にも適用
       ctx.filter = video.style.filter;
       ctx.drawImage(video, 0, 0);
-
       canvas.toBlob(async blob => {
         const file = new File([blob], 'photo.png', { type: 'image/png' });
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          // ネイティブの「写真に保存」UIを呼び出し
           try {
             await navigator.share({ files: [file], title: '撮影写真' });
           } catch (err) {
             alert('シェアに失敗しました: ' + err.message);
           }
         } else {
-          // フォールバックでダウンロードリンクを自動クリック
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url; a.download = 'photo.png';
@@ -186,20 +187,18 @@
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
-          alert('画像を保存しました。長押しで「写真に追加」をしてください。');
+          alert('画像を保存しました。長押しで「写真に追加」してください。');
         }
       }, 'image/png');
     }
 
-    // イベント登録
+    // 初期化
     window.addEventListener('DOMContentLoaded', () => {
       startCamera();
       setupSliders();
       applyFilters();
-
       captureBtn.addEventListener('click', captureAndSave);
       switchBtn.addEventListener('click', () => {
-        // カメラ向きトグル
         facingMode = (facingMode === 'environment') ? 'user' : 'environment';
         restartCamera();
       });
