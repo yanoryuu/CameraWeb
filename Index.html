@@ -1,83 +1,112 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>スマホ対応・写真加工＆スタンプアプリ</title>
+  <title>スマホ最適化・写真加工＆スタンプアプリ</title>
 
-  <!-- MediaPipe FaceMesh（モジュールではなくグローバル読み込み） -->
+  <!-- MediaPipe FaceMesh のみグローバル読み込み -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/face_mesh.js" crossorigin="anonymous"></script>
 
   <style>
-    html, body {
-      margin: 0; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
-      height: 100vh;
-      display: grid;
-      grid-template-rows: auto 1fr auto;
-      background: #000; color: #fff; font-family: sans-serif;
-      overflow: hidden;
+    /*── 全体設定 ──*/
+    :root {
+      --control-gap: 0.75rem;
+      --control-font: 1.1rem;
+      --button-font: 1.2rem;
+      --button-height: 3.5rem;
     }
-    /* 上部：フィルターコントロール */
+    * { box-sizing: border-box; }
+    html, body {
+      margin:0; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
+      height:100vh; display:grid; grid-template-rows:auto 1fr auto;
+      background:#000; color:#fff; font-family: sans-serif; overflow:hidden;
+    }
+
+    /*── 上部：フィルターコントロール ──*/
     .controls {
-      display: flex; flex-wrap: wrap; justify-content: space-around;
-      padding: calc(0.5rem + env(safe-area-inset-top)) 0.5rem 0.5rem;
-      background: rgba(0,0,0,0.6);
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--control-gap);
+      padding: calc(0.75rem + env(safe-area-inset-top)) 0.75rem 0.75rem;
+      background: rgba(0,0,0,0.7);
     }
     .controls label {
-      flex: 1 1 45%; font-size: 1rem; margin: 0.25rem 0;
+      font-size: var(--control-font);
+      display: flex;
+      flex-direction: column;
     }
-    .controls input { width: 100%; margin-top: 0.25rem; }
+    .controls input[type=range] {
+      width: 100%;
+      height: 1.5rem;
+      margin-top: 0.5rem;
+      touch-action: none;
+    }
+    .controls span {
+      margin-top: 0.25rem;
+      text-align: right;
+    }
 
-    /* 中央：映像＋スタンプオーバーレイ */
+    /*── 中央：映像＋オーバーレイ ──*/
     #video, #overlay {
-      position: absolute; top: 0; left: 0;
-      width: 100%; height: 100%; object-fit: cover;
+      position:absolute; top:0; left:0;
+      width:100%; height:100%; object-fit: cover;
     }
     #overlay { pointer-events: none; }
+    #canvas { display:none; }
 
-    /* 隠しキャプチャ用キャンバス */
-    #canvas { display: none; }
-
-    /* 下部：アクションボタン */
+    /*── 下部：アクションボタン ──*/
     .actions {
-      display: flex; justify-content: space-around;
-      padding: 0.5rem 0.5rem calc(0.5rem + env(safe-area-inset-bottom));
-      background: rgba(0,0,0,0.6);
+      display: flex; flex-direction: column; gap: 0.5rem;
+      padding: 0.5rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom));
+      background: rgba(0,0,0,0.7);
     }
     .actions button {
-      flex: 1 1 auto; margin: 0 0.5rem; padding: 0.75rem;
-      font-size: 1rem; border: none; border-radius: 4px;
+      width: 100%;
+      height: var(--button-height);
+      font-size: var(--button-font);
+      border: none; border-radius: 8px;
       background: #1e90ff; color: #fff;
+      touch-action: manipulation;
+    }
+
+    /*── 狭い画面ではコントロールを1列に ──*/
+    @media (max-width: 480px) {
+      .controls {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
 <body>
 
-  <!-- 上部フィルターコントロール -->
+  <!-- 上部：フィルターコントロール -->
   <div class="controls">
-    <label>彩度<br>
-      <input type="range" id="saturate"   min="0" max="200" value="100">
+    <label>
+      彩度
+      <input type="range" id="saturate" min="0" max="200" value="100">
       <span id="val-saturate">100%</span>
     </label>
-    <label>明度<br>
+    <label>
+      明度
       <input type="range" id="brightness" min="0" max="200" value="100">
       <span id="val-brightness">100%</span>
     </label>
-    <label>コントラスト<br>
-      <input type="range" id="contrast"   min="0" max="200" value="100">
+    <label>
+      コントラスト
+      <input type="range" id="contrast" min="0" max="200" value="100">
       <span id="val-contrast">100%</span>
     </label>
-    <label>セピア<br>
-      <input type="range" id="sepia"      min="0" max="100" value="0">
+    <label>
+      セピア
+      <input type="range" id="sepia" min="0" max="100" value="0">
       <span id="val-sepia">0%</span>
     </label>
   </div>
 
-  <!-- 中央：カメラ映像 -->
+  <!-- 中央：カメラ映像とオーバーレイ -->
   <video id="video" autoplay playsinline></video>
-  <!-- 顔トラッキング用オーバーレイ -->
   <canvas id="overlay"></canvas>
-  <!-- 撮影キャプチャ用キャンバス -->
   <canvas id="canvas"></canvas>
 
   <!-- 下部：撮影＆保存／カメラ切替 -->
@@ -103,84 +132,73 @@
       { id:'sepia',      unit:'%', css:'sepia'      }
     ];
 
-    // カメラ方向トグル
-    let facingMode = 'environment'; // 背面カメラ
+    // カメラ方向
+    let facingMode = 'environment';
 
     // スタンプ画像
     const stamp = new Image();
-    stamp.src   = 'glasses.png'; // 同フォルダに用意
+    stamp.src = 'glasses.png';
 
-    // MediaPipe FaceMesh 初期化
+    // MediaPipe FaceMesh
     const faceMesh = new FaceMesh({
       locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/${file}`
     });
-    faceMesh.setOptions({
-      maxNumFaces: 1,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
+    faceMesh.setOptions({ maxNumFaces:1, minDetectionConfidence:0.5, minTrackingConfidence:0.5 });
     faceMesh.onResults(drawStamp);
 
-    // 顔検出結果ごとにオーバーレイへスタンプ描画
     function drawStamp(results) {
       overlay.width  = video.videoWidth;
       overlay.height = video.videoHeight;
-      ctxOverlay.clearRect(0,0,overlay.width, overlay.height);
-
+      ctxOverlay.clearRect(0,0,overlay.width,overlay.height);
       if (results.multiFaceLandmarks && stamp.complete) {
         const lm = results.multiFaceLandmarks[0];
         const L = lm[33], R = lm[263];
-        const lx = L.x * overlay.width,  ly = L.y * overlay.height;
-        const rx = R.x * overlay.width,  ry = R.y * overlay.height;
-        const dist = Math.hypot(rx - lx, ry - ly);
-        const w = dist * 2.5;
-        const h = w * (stamp.height / stamp.width);
-        const cx = (lx + rx)/2 - w/2;
-        const cy = (ly + ry)/2 - h/2 - (0.1*h);
+        const lx = L.x*overlay.width, ly = L.y*overlay.height;
+        const rx = R.x*overlay.width, ry = R.y*overlay.height;
+        const dist = Math.hypot(rx-lx, ry-ly);
+        const w = dist*2.5, h = w*(stamp.height/stamp.width);
+        const cx = (lx+rx)/2 - w/2, cy = (ly+ry)/2 - h/2 - 0.1*h;
         ctxOverlay.drawImage(stamp, cx, cy, w, h);
       }
     }
 
-    // フィルター適用
+    // スライダー処理
     function applyFilters() {
-      const str = filters.map(f => {
+      const str = filters.map(f=>{
         const v = document.getElementById(f.id).value;
         return `${f.css}(${v}${f.unit})`;
       }).join(' ');
       video.style.filter = str;
     }
     function setupSliders() {
-      filters.forEach(f => {
+      filters.forEach(f=>{
         const s = document.getElementById(f.id);
         const lab = document.getElementById('val-'+f.id);
-        s.addEventListener('input', () => {
+        s.addEventListener('input', ()=>{
           lab.textContent = s.value + f.unit;
           applyFilters();
         });
       });
     }
 
-    // カメラ起動＆フレームループ
+    // カメラ制御
     let stream = null;
     async function startCamera() {
       stopCamera();
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode } });
         video.srcObject = stream;
-        await new Promise(r => video.onloadedmetadata = r);
+        await new Promise(r=>video.onloadedmetadata=r);
         requestAnimationFrame(onFrame);
       } catch(e) {
-        alert('カメラ取得失敗: ' + e.message);
+        alert('カメラ取得失敗: '+e.message);
       }
     }
     function stopCamera() {
-      if (stream) {
-        stream.getTracks().forEach(t => t.stop());
-        stream = null;
-      }
+      if (stream) stream.getTracks().forEach(t=>t.stop());
     }
     async function restartCamera() {
-      facingMode = facingMode === 'environment' ? 'user' : 'environment';
+      facingMode = (facingMode==='environment')?'user':'environment';
       await startCamera();
     }
     async function onFrame() {
@@ -193,32 +211,28 @@
       canvas.width  = video.videoWidth;
       canvas.height = video.videoHeight;
       ctxCanvas.filter = video.style.filter;
-      ctxCanvas.drawImage(video,  0, 0);
+      ctxCanvas.drawImage(video, 0, 0);
       ctxCanvas.drawImage(overlay, 0, 0);
-
-      canvas.toBlob(async blob => {
-        const file = new File([blob], 'photo.png', { type: 'image/png' });
-        if (navigator.canShare?.({ files: [file] })) {
-          try {
-            await navigator.share({ files: [file], title: '撮影写真' });
-          } catch (err) {
-            alert('シェア失敗: ' + err.message);
-          }
+      canvas.toBlob(async blob=>{
+        const file = new File([blob],'photo.png',{ type:'image/png' });
+        if (navigator.canShare?.({ files:[file] })) {
+          try { await navigator.share({ files:[file], title:'撮影写真' }); }
+          catch(err){ alert('シェア失敗: '+err.message); }
         } else {
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
-          a.href = url; a.download = 'photo.png';
+          a.href=url; a.download='photo.png';
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
           alert('長押しで写真アプリに保存してください');
         }
-      }, 'image/png');
+      },'image/png');
     }
 
     // 初期化
-    window.addEventListener('DOMContentLoaded', () => {
+    window.addEventListener('DOMContentLoaded', ()=>{
       setupSliders();
       applyFilters();
       startCamera();
