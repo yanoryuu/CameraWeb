@@ -3,16 +3,46 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>顔トラッキング＋サングラス＋カメラ選択</title>
+  <title>モバイル対応：顔トラッキング＋サングラス＋カメラ選択</title>
   <style>
-    /* 全画面レイアウト */
-    html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; display:flex; flex-direction:column; }
-    #video, #overlay { position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; }
-    #overlay { pointer-events:none; }
-    .controls { position:absolute; top:0; width:100%; padding:0.5rem; background:rgba(0,0,0,0.5); z-index:10; display:flex; justify-content:center; }
-    .controls select { width:80%; padding:0.5rem; font-size:1rem; border-radius:4px; border:none; }
+    /* ベース */
+    html, body {
+      margin: 0; padding: 0;
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: sans-serif;
+    }
+    /* ビデオ＋オーバーレイ全画面 */
+    #video, #overlay {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+    }
+    #overlay { pointer-events: none; }
+    /* ドロップダウン（固定表示） */
+    .controls {
+      position: fixed;
+      top: env(safe-area-inset-top);
+      left: 0;
+      width: 100%;
+      padding: 0.5rem;
+      background: rgba(0,0,0,0.7);
+      display: flex;
+      justify-content: center;
+      z-index: 10;
+    }
+    .controls select {
+      width: 90%;
+      max-width: 360px;
+      padding: 0.75rem;
+      font-size: 1.1rem;
+      border-radius: 8px;
+      border: none;
+      background: #fff;
+      color: #000;
+    }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/face_mesh.js" crossorigin="anonymous"></script>
 </head>
 <body>
@@ -37,68 +67,77 @@
 
     // FaceMesh 初期化
     const faceMesh = new FaceMesh({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/${f}` });
-    faceMesh.setOptions({ maxNumFaces:1, minDetectionConfidence:0.5, minTrackingConfidence:0.5 });
+    faceMesh.setOptions({ maxNumFaces: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+    faceMesh.onResults(drawGlasses);
 
     // サングラス画像
     const glasses = new Image();
     glasses.src = 'glasses.png';
 
-    faceMesh.onResults(results => {
+    function drawGlasses(results) {
       overlay.width = video.videoWidth;
       overlay.height = video.videoHeight;
-      ctx.clearRect(0,0,overlay.width,overlay.height);
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
       if (!results.multiFaceLandmarks) return;
       const lm = results.multiFaceLandmarks[0];
       const L = lm[33], R = lm[263];
-      const lx = L.x*overlay.width, ly = L.y*overlay.height;
-      const rx = R.x*overlay.width, ry = R.y*overlay.height;
-      const dist = Math.hypot(rx-lx, ry-ly);
-      const w = dist*2.5;
-      const h = w*(glasses.height/glasses.width);
-      const cx = (lx+rx)/2 - w/2;
-      const cy = (ly+ry)/2 - h/2 - 0.1*h;
+      const lx = L.x * overlay.width, ly = L.y * overlay.height;
+      const rx = R.x * overlay.width, ry = R.y * overlay.height;
+      const dist = Math.hypot(rx - lx, ry - ly);
+      const w = dist * 2.5;
+      const h = w * (glasses.height / glasses.width);
+      const cx = (lx + rx) / 2 - w / 2;
+      const cy = (ly + ry) / 2 - h / 2 - 0.1 * h;
       if (glasses.complete) ctx.drawImage(glasses, cx, cy, w, h);
-    });
+    }
 
+    // フレーム処理ループ
     async function processFrame() {
       await faceMesh.send({ image: video });
       requestAnimationFrame(processFrame);
     }
 
+    // カメラ起動
     async function startCamera(deviceId) {
-      if (stream) stream.getTracks().forEach(t=>t.stop());
+      if (stream) stream.getTracks().forEach(t => t.stop());
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video:{ deviceId:{ exact: deviceId } } });
+        stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } });
         video.srcObject = stream;
-        await new Promise(r=>video.onloadedmetadata=r);
+        await new Promise(r => video.onloadedmetadata = r);
         processFrame();
-      } catch(e) {
+      } catch (e) {
         console.error('カメラ起動失敗:', e);
       }
     }
 
+    // カメラ一覧取得、ラベル付きでプルダウンに追加
     async function enumerateCameras() {
+      try {
+        // 初回許可取得
+        const temp = await navigator.mediaDevices.getUserMedia({ video: true });
+        temp.getTracks().forEach(t => t.stop());
+      } catch {}
       const devices = await navigator.mediaDevices.enumerateDevices();
-      videoInputs = devices.filter(d=>d.kind==='videoinput').map(d=>d.deviceId);
-      // ドロップダウンに追加
-      videoInputs.forEach((id, idx) => {
+      const cams = devices.filter(d => d.kind === 'videoinput');
+      videoInputs = cams.map(d => d.deviceId);
+      select.innerHTML = '';
+      cams.forEach(d => {
         const opt = document.createElement('option');
-        opt.value = id;
-        opt.text = `カメラ ${idx+1}`;
+        opt.value = d.deviceId;
+        opt.text = d.label || 'Camera';
         select.appendChild(opt);
       });
     }
 
-    // ドロップダウン変更でカメラ切替
-    select.addEventListener('change', async () => {
-      await startCamera(select.value);
-    });
+    // 選択変更でカメラ切替
+    select.addEventListener('change', () => startCamera(select.value));
 
-    window.addEventListener('DOMContentLoaded', async () => {
+    // 初期化
+    window.addEventListener('load', async () => {
       await enumerateCameras();
-      if (videoInputs.length) {
+      if (videoInputs.length > 0) {
         select.value = videoInputs[0];
-        await startCamera(videoInputs[0]);
+        startCamera(videoInputs[0]);
       } else alert('カメラが見つかりません');
     });
   </script>
