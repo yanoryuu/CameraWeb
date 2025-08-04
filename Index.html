@@ -5,54 +5,50 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>モバイル対応：顔トラッキング＋サングラス＋カメラ選択</title>
   <style>
-    /* ベース */
+    /* ベーススタイル */
     html, body {
-      margin: 0; padding: 0;
+      margin: 0;
+      padding: 0;
       width: 100%; height: 100%;
       overflow: hidden;
       background: #000;
       font-family: sans-serif;
     }
-    /* ビデオ＋オーバーレイ全画面 */
+    /* ビデオとキャンバスを重ねる */
     #video, #overlay {
       position: absolute; top: 0; left: 0;
       width: 100%; height: 100%;
       object-fit: cover;
     }
     #overlay { pointer-events: none; }
-    /* ドロップダウン（固定表示） */
+    /* カメラ選択ドロップダウン */
     .controls {
-      position: fixed;
-      top: env(safe-area-inset-top);
-      left: 0;
-      width: 100%;
+      position: fixed; top: env(safe-area-inset-top);
+      left: 0; width: 100%;
       padding: 0.5rem;
       background: rgba(0,0,0,0.7);
-      display: flex;
-      justify-content: center;
+      display: flex; justify-content: center;
       z-index: 10;
     }
     .controls select {
-      width: 90%;
-      max-width: 360px;
+      width: 90%; max-width: 360px;
       padding: 0.75rem;
       font-size: 1.1rem;
-      border-radius: 8px;
-      border: none;
-      background: #fff;
-      color: #000;
+      border-radius: 8px; border: none;
+      background: #fff; color: #000;
     }
   </style>
+  <!-- FaceMeshのみ読み込み -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/face_mesh.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
-  <!-- カメラ選択ドロップダウン -->
+  <!-- カメラ選択UI -->
   <div class="controls">
     <select id="cameraSelect"></select>
   </div>
 
-  <!-- ビデオとオーバーレイ -->
+  <!-- 動画表示＆オーバーレイ -->
   <video id="video" autoplay playsinline muted></video>
   <canvas id="overlay"></canvas>
 
@@ -65,15 +61,16 @@
     let videoInputs = [];
     let stream = null;
 
-    // FaceMesh 初期化
+    // FaceMesh初期化
     const faceMesh = new FaceMesh({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/${f}` });
-    faceMesh.setOptions({ maxNumFaces: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+    faceMesh.setOptions({ maxNumFaces:1, minDetectionConfidence:0.5, minTrackingConfidence:0.5 });
     faceMesh.onResults(drawGlasses);
 
-    // サングラス画像
+    // サングラス画像読み込み
     const glasses = new Image();
     glasses.src = 'glasses.png';
 
+    // 顔検出結果にサングラスを描画
     function drawGlasses(results) {
       overlay.width = video.videoWidth;
       overlay.height = video.videoHeight;
@@ -91,7 +88,7 @@
       if (glasses.complete) ctx.drawImage(glasses, cx, cy, w, h);
     }
 
-    // フレーム処理ループ
+    // フレーム処理
     async function processFrame() {
       await faceMesh.send({ image: video });
       requestAnimationFrame(processFrame);
@@ -110,16 +107,12 @@
       }
     }
 
-    // カメラ一覧取得、ラベル付きでプルダウンに追加
+    // カメラ一覧取得＆ラベル付きプルダウン
     async function enumerateCameras() {
-      try {
-        // 初回許可取得
-        const temp = await navigator.mediaDevices.getUserMedia({ video: true });
-        temp.getTracks().forEach(t => t.stop());
-      } catch {}
+      try { const temp = await navigator.mediaDevices.getUserMedia({ video:true }); temp.getTracks().forEach(t=>t.stop()); } catch {}
       const devices = await navigator.mediaDevices.enumerateDevices();
-      const cams = devices.filter(d => d.kind === 'videoinput');
-      videoInputs = cams.map(d => d.deviceId);
+      const cams = devices.filter(d=>d.kind==='videoinput');
+      videoInputs = cams.map(d=>d.deviceId);
       select.innerHTML = '';
       cams.forEach(d => {
         const opt = document.createElement('option');
@@ -129,7 +122,7 @@
       });
     }
 
-    // 選択変更でカメラ切替
+    // ドロップダウン変更で切替
     select.addEventListener('change', () => startCamera(select.value));
 
     // 初期化
