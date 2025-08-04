@@ -72,10 +72,19 @@
 
     // 顔検出結果にサングラスを描画
     function drawGlasses(results) {
+      // Canvas サイズ同期
       overlay.width = video.videoWidth;
       overlay.height = video.videoHeight;
       ctx.clearRect(0, 0, overlay.width, overlay.height);
-      if (!results.multiFaceLandmarks) return;
+
+      // 顔ランドマークがない場合は非表示に
+      if (!results.multiFaceLandmarks) {
+        overlay.style.display = 'none';
+        return;
+      }
+      // 顔検出時のみ表示
+      overlay.style.display = 'block';
+
       const lm = results.multiFaceLandmarks[0];
       const L = lm[33], R = lm[263];
       const lx = L.x * overlay.width, ly = L.y * overlay.height;
