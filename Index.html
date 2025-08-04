@@ -3,36 +3,39 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>顔トラッキング＋サングラス＋カメラ切替</title>
+  <title>顔トラッキング＋サングラス＋カメラ選択</title>
   <style>
+    /* 全画面レイアウト */
     html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; display:flex; flex-direction:column; }
     #video, #overlay { position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; }
     #overlay { pointer-events:none; }
-    .actions { position:absolute; bottom:0; width:100%; display:flex; justify-content:center; padding:0.5rem; background:rgba(0,0,0,0.5); z-index:10; }
-    .actions button { flex:1; margin:0 0.5rem; padding:0.75rem; font-size:1rem; border:none; border-radius:4px; background:#1e90ff; color:#fff; }
+    .controls { position:absolute; top:0; width:100%; padding:0.5rem; background:rgba(0,0,0,0.5); z-index:10; display:flex; justify-content:center; }
+    .controls select { width:80%; padding:0.5rem; font-size:1rem; border-radius:4px; border:none; }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/face_mesh.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
+  <!-- カメラ選択ドロップダウン -->
+  <div class="controls">
+    <select id="cameraSelect"></select>
+  </div>
+
+  <!-- ビデオとオーバーレイ -->
   <video id="video" autoplay playsinline muted></video>
   <canvas id="overlay"></canvas>
-  <div class="actions">
-    <button id="switchCamera">カメラ切替</button>
-  </div>
 
   <script>
     const video = document.getElementById('video');
     const overlay = document.getElementById('overlay');
     const ctx = overlay.getContext('2d');
-    const switchBtn = document.getElementById('switchCamera');
+    const select = document.getElementById('cameraSelect');
 
-    // デバイスIDの一覧と現在のインデックス
     let videoInputs = [];
-    let currentCameraIndex = 0;
     let stream = null;
 
-    // FaceMesh の初期化
+    // FaceMesh 初期化
     const faceMesh = new FaceMesh({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/${f}` });
     faceMesh.setOptions({ maxNumFaces:1, minDetectionConfidence:0.5, minTrackingConfidence:0.5 });
 
@@ -40,7 +43,6 @@
     const glasses = new Image();
     glasses.src = 'glasses.png';
 
-    // 顔検出結果ごとに描画
     faceMesh.onResults(results => {
       overlay.width = video.videoWidth;
       overlay.height = video.videoHeight;
@@ -58,43 +60,46 @@
       if (glasses.complete) ctx.drawImage(glasses, cx, cy, w, h);
     });
 
-    // フレーム処理ループ
     async function processFrame() {
       await faceMesh.send({ image: video });
       requestAnimationFrame(processFrame);
     }
 
-    // カメラ起動
     async function startCamera(deviceId) {
-      // 既存ストリーム停止
       if (stream) stream.getTracks().forEach(t=>t.stop());
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video:{ deviceId: deviceId?{ exact:deviceId }:undefined } });
+        stream = await navigator.mediaDevices.getUserMedia({ video:{ deviceId:{ exact: deviceId } } });
         video.srcObject = stream;
-        await new Promise(r=> video.onloadedmetadata=r);
+        await new Promise(r=>video.onloadedmetadata=r);
         processFrame();
       } catch(e) {
         console.error('カメラ起動失敗:', e);
       }
     }
 
-    // カメラデバイスを列挙
     async function enumerateCameras() {
       const devices = await navigator.mediaDevices.enumerateDevices();
       videoInputs = devices.filter(d=>d.kind==='videoinput').map(d=>d.deviceId);
+      // ドロップダウンに追加
+      videoInputs.forEach((id, idx) => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.text = `カメラ ${idx+1}`;
+        select.appendChild(opt);
+      });
     }
 
-    // 切替ボタン
-    switchBtn.addEventListener('click', async ()=>{
-      if (videoInputs.length<2) return;
-      currentCameraIndex = (currentCameraIndex+1)%videoInputs.length;
-      await startCamera(videoInputs[currentCameraIndex]);
+    // ドロップダウン変更でカメラ切替
+    select.addEventListener('change', async () => {
+      await startCamera(select.value);
     });
 
-    // 初期化
-    window.addEventListener('DOMContentLoaded', async ()=>{
+    window.addEventListener('DOMContentLoaded', async () => {
       await enumerateCameras();
-      await startCamera(videoInputs[0]);
+      if (videoInputs.length) {
+        select.value = videoInputs[0];
+        await startCamera(videoInputs[0]);
+      } else alert('カメラが見つかりません');
     });
   </script>
 </body>
