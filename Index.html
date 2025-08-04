@@ -2,51 +2,37 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>フィルター＆カメラ切替サンプル</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>顔トラッキング＋サングラスオーバーレイ＋カメラ切替</title>
   <style>
-    /* 全画面フレックス布局 */
+    /* 全画面レイアウト */
     html, body {
       margin: 0;
       padding: 0;
       width: 100%;
       height: 100%;
       overflow: hidden;
-      display: flex;
-      flex-direction: column;
       background: #000;
       color: #fff;
       font-family: sans-serif;
-    }
-    /* 上部フィルターコントロール */
-    .controls {
       display: flex;
-      flex-wrap: wrap;
-      justify-content: space-around;
-      padding: 0.5rem;
-      background: rgba(0,0,0,0.5);
-      z-index: 10;
+      flex-direction: column;
     }
-    .controls label {
-      flex: 1 1 45%;
-      font-size: 1rem;
-      margin: 0.25rem;
-      color: #fff;
-    }
-    .controls input {
+    /* ビデオと重ねるオーバーレイキャンバス */
+    #video, #overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
       width: 100%;
-      margin-top: 0.25rem;
-    }
-    /* カメラ映像 */
-    #video {
-      flex: 1;
-      width: 100%;
+      height: 100%;
       object-fit: cover;
-      /* 初期フィルター */
-      filter: saturate(100%) brightness(100%);
     }
-    /* 下部ボタン */
+    #overlay { pointer-events: none; }
+    /* 下部操作ボタン */
     .actions {
+      position: absolute;
+      bottom: 0;
+      width: 100%;
       display: flex;
       justify-content: center;
       padding: 0.5rem;
@@ -54,7 +40,7 @@
       z-index: 10;
     }
     .actions button {
-      flex: 1 1 auto;
+      flex: 1;
       margin: 0 0.5rem;
       padding: 0.75rem;
       font-size: 1rem;
@@ -64,35 +50,16 @@
       color: #fff;
     }
   </style>
+  <!-- MediaPipe FaceMesh と CameraUtils の読み込み -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/face_mesh.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
-  <!-- フィルターコントロール -->
-  <div class="controls">
-    <label>
-      彩度<br>
-      <input type="range" id="saturate"   min="0"  max="200" value="100">
-      <span id="val-saturate">100%</span>
-    </label>
-    <label>
-      明度<br>
-      <input type="range" id="brightness" min="0"  max="200" value="100">
-      <span id="val-brightness">100%</span>
-    </label>
-    <label>
-      コントラスト<br>
-      <input type="range" id="contrast"   min="0"  max="200" value="100">
-      <span id="val-contrast">100%</span>
-    </label>
-    <label>
-      セピア<br>
-      <input type="range" id="sepia"      min="0"  max="100" value="0">
-      <span id="val-sepia">0%</span>
-    </label>
-  </div>
-
   <!-- カメラ映像 -->
   <video id="video" autoplay playsinline muted></video>
+  <!-- 顔トラッキングオーバーレイ -->
+  <canvas id="overlay"></canvas>
 
   <!-- カメラ切替ボタン -->
   <div class="actions">
@@ -100,24 +67,17 @@
   </div>
 
   <script>
-    // 要素取得
     const video = document.getElementById('video');
+    const overlay = document.getElementById('overlay');
+    const ctx = overlay.getContext('2d');
     const switchBtn = document.getElementById('switchCamera');
 
-    // フィルター設定
-    const filters = [
-      { id:'saturate',   unit:'%', css:'saturate'   },
-      { id:'brightness', unit:'%', css:'brightness' },
-      { id:'contrast',   unit:'%', css:'contrast'   },
-      { id:'sepia',      unit:'%', css:'sepia'      }
-    ];
-
-    // 選択可能なカメラ情報
+    // 接続されているカメラの deviceId 一覧
     let videoInputs = [];
     let currentCameraIndex = 0;
     let stream = null;
 
-    // カメラ列挙
+    // 利用可能なカメラを列挙
     async function enumerateCameras() {
       const devices = await navigator.mediaDevices.enumerateDevices();
       videoInputs = devices
@@ -125,45 +85,62 @@
         .map(d => d.deviceId);
     }
 
-    // カメラ起動
+    // 指定デバイスIDでカメラ起動
     async function startCamera(deviceId) {
-      if (stream) {
-        stream.getTracks().forEach(t => t.stop());
-      }
+      if (stream) stream.getTracks().forEach(t => t.stop());
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { deviceId: { exact: deviceId } }
-        });
+        stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } });
         video.srcObject = stream;
       } catch (e) {
-        console.error('カメラ起動エラー:', e);
+        console.error('カメラ起動失敗:', e);
       }
     }
 
-    // フィルター適用
-    function applyFilters() {
-      const filterString = filters.map(f => {
-        const val = document.getElementById(f.id).value;
-        document.getElementById(`val-${f.id}`).textContent = `${val}${f.unit}`;
-        return `${f.css}(${val}${f.unit})`;
-      }).join(' ');
-      video.style.filter = filterString;
-    }
+    // FaceMesh 初期化
+    const faceMesh = new FaceMesh({
+      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/${f}`
+    });
+    faceMesh.setOptions({ maxNumFaces: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 
-    // スライダーセットアップ
-    function setupSliders() {
-      filters.forEach(f => {
-        const slider = document.getElementById(f.id);
-        slider.addEventListener('input', applyFilters);
+    // サングラス画像ロード
+    const glasses = new Image();
+    glasses.src = 'glasses.png'; // 同フォルダに配置
+
+    // 検出結果ごとにサングラスを描画
+    faceMesh.onResults(results => {
+      overlay.width = video.videoWidth;
+      overlay.height = video.videoHeight;
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      if (!results.multiFaceLandmarks) return;
+      const lm = results.multiFaceLandmarks[0];
+      // 左目内側(33),右目内側(263)
+      const L = lm[33], R = lm[263];
+      const lx = L.x * overlay.width, ly = L.y * overlay.height;
+      const rx = R.x * overlay.width, ry = R.y * overlay.height;
+      const dist = Math.hypot(rx - lx, ry - ly);
+      const w = dist * 2.5;
+      const h = w * (glasses.height / glasses.width);
+      const cx = (lx + rx) / 2 - w / 2;
+      const cy = (ly + ry) / 2 - h / 2 - 0.1 * h;
+      if (glasses.complete) ctx.drawImage(glasses, cx, cy, w, h);
+    });
+
+    // カメラ起動 & フレーム送信
+    function startProcessing() {
+      const camera = new Camera(video, {
+        onFrame: async () => await faceMesh.send({ image: video }),
+        width: 640, height: 480,
+        deviceId: videoInputs[currentCameraIndex]
       });
-      applyFilters();
+      camera.start();
     }
 
-    // カメラ切替
+    // ボタンでカメラ切替
     switchBtn.addEventListener('click', async () => {
       if (videoInputs.length < 2) return;
       currentCameraIndex = (currentCameraIndex + 1) % videoInputs.length;
       await startCamera(videoInputs[currentCameraIndex]);
+      startProcessing();
     });
 
     // 初期化
@@ -171,8 +148,8 @@
       await enumerateCameras();
       if (videoInputs.length > 0) {
         await startCamera(videoInputs[0]);
-      }
-      setupSliders();
+        startProcessing();
+      } else alert('カメラが見つかりません');
     });
   </script>
 </body>
