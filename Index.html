@@ -96,6 +96,8 @@
 
     // カメラ起動
     async function startCamera(deviceId) {
+      // FaceMesh state reset（カメラ切替時に必要）
+      faceMesh.reset();
       if (stream) stream.getTracks().forEach(t => t.stop());
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } });
